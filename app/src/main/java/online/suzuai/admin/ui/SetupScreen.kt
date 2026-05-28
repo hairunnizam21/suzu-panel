@@ -42,7 +42,6 @@ fun SetupScreen(
     val scope = rememberCoroutineScope()
 
     var host by rememberSaveable { mutableStateOf("") }
-    var port by rememberSaveable { mutableStateOf("22") }
     var password by rememberSaveable { mutableStateOf("") }
 
     var connecting by rememberSaveable { mutableStateOf(false) }
@@ -51,7 +50,6 @@ fun SetupScreen(
 
     LaunchedEffect(Unit) {
         host = Prefs.get(ctx, Prefs.K_VPS_HOST)
-        port = Prefs.get(ctx, Prefs.K_VPS_PORT, "22").ifBlank { "22" }
         password = Prefs.get(ctx, Prefs.K_VPS_PASSWORD)
     }
 
@@ -67,7 +65,7 @@ fun SetupScreen(
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Login Server", style = MaterialTheme.typography.titleSmall)
                 Text(
-                    "Masukkan IP dan password root VPS anda. App akan auto connect dan ambil admin token.",
+                    "Masukkan IP dan password VPS anda.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -75,13 +73,6 @@ fun SetupScreen(
                     value = host,
                     onValueChange = { host = it.trim() },
                     label = { Text("IP VPS") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = port,
-                    onValueChange = { port = it.filter { c -> c.isDigit() } },
-                    label = { Text("Port SSH (default: 22)") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -109,15 +100,14 @@ fun SetupScreen(
                         isError = false
 
                         Prefs.set(ctx, Prefs.K_VPS_HOST, host)
-                        Prefs.set(ctx, Prefs.K_VPS_PORT, port)
+                        Prefs.set(ctx, Prefs.K_VPS_PORT, "22")
                         Prefs.set(ctx, Prefs.K_VPS_USER, "root")
                         Prefs.set(ctx, Prefs.K_VPS_PASSWORD, password)
 
                         scope.launch {
-                            // SSH in and grab admin token + domain from .env
                             val result = SshInstaller.runOnce(
                                 host = host,
-                                port = port.toIntOrNull() ?: 22,
+                                port = 22,
                                 user = "root",
                                 password = password,
                                 command = "grep -E '^(SUZU_ADMIN_TOKEN|SUZU_DOMAIN)=' /var/www/suzu-ai-web/.env 2>/dev/null || echo '__NOT_FOUND__'",
@@ -196,12 +186,12 @@ fun SetupScreen(
                     OutlinedButton(
                         onClick = {
                             Prefs.set(ctx, Prefs.K_VPS_HOST, host)
-                            Prefs.set(ctx, Prefs.K_VPS_PORT, port)
+                            Prefs.set(ctx, Prefs.K_VPS_PORT, "22")
                             Prefs.set(ctx, Prefs.K_VPS_USER, "root")
                             Prefs.set(ctx, Prefs.K_VPS_PASSWORD, password)
                             onInstallNew()
                         },
-                        enabled = host.isNotBlank() && password.isNotBlank() && !connecting,
+                        enabled = host.isNotBlank() && password.isNotBlank(),
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("Install Suzu AI") }
                 }
