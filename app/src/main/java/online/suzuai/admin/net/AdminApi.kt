@@ -136,6 +136,88 @@ class AdminApi(private val baseUrl: String, private val token: String) {
             }
         }
 
+    // --- Token pool CRUD ---
+
+    suspend fun listTokens(): Result<JSONArray> = withContext(Dispatchers.IO) {
+        runCatching {
+            val req = authed(Request.Builder().url(url("/api/admin/tokens")).get()).build()
+            http.newCall(req).execute().use { resp ->
+                val body = resp.body?.string().orEmpty()
+                check(resp.isSuccessful) { "HTTP ${resp.code}: $body" }
+                JSONObject(body).getJSONArray("tokens")
+            }
+        }
+    }
+
+    suspend fun addToken(
+        name: String,
+        baseUrl: String,
+        apiKey: String,
+        model: String,
+        priority: Int = 100,
+    ): Result<Long> = withContext(Dispatchers.IO) {
+        runCatching {
+            val body = JSONObject().apply {
+                put("name", name)
+                put("base_url", baseUrl)
+                put("api_key", apiKey)
+                put("model", model)
+                put("priority", priority)
+            }
+            val req = authed(
+                Request.Builder().url(url("/api/admin/tokens"))
+                    .post(body.toString().toRequestBody(jsonMedia))
+            ).build()
+            http.newCall(req).execute().use { resp ->
+                val text = resp.body?.string().orEmpty()
+                check(resp.isSuccessful) { "HTTP ${resp.code}: $text" }
+                JSONObject(text).optLong("id", -1)
+            }
+        }
+    }
+
+    suspend fun updateToken(
+        id: Long,
+        name: String? = null,
+        baseUrl: String? = null,
+        apiKey: String? = null,
+        model: String? = null,
+        priority: Int? = null,
+        status: String? = null,
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val body = JSONObject().apply {
+                name?.let { put("name", it) }
+                baseUrl?.let { put("base_url", it) }
+                apiKey?.let { put("api_key", it) }
+                model?.let { put("model", it) }
+                priority?.let { put("priority", it) }
+                status?.let { put("status", it) }
+            }
+            val req = authed(
+                Request.Builder().url(url("/api/admin/tokens/$id"))
+                    .put(body.toString().toRequestBody(jsonMedia))
+            ).build()
+            http.newCall(req).execute().use { resp ->
+                val text = resp.body?.string().orEmpty()
+                check(resp.isSuccessful) { "HTTP ${resp.code}: $text" }
+            }
+        }
+    }
+
+    suspend fun deleteToken(id: Long): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val req = authed(
+                Request.Builder().url(url("/api/admin/tokens/$id"))
+                    .delete()
+            ).build()
+            http.newCall(req).execute().use { resp ->
+                val text = resp.body?.string().orEmpty()
+                check(resp.isSuccessful) { "HTTP ${resp.code}: $text" }
+            }
+        }
+    }
+
     private suspend fun post(path: String, body: JSONObject): Result<Unit> =
         withContext(Dispatchers.IO) {
             runCatching {

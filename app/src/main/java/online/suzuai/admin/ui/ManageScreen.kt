@@ -39,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -70,6 +71,7 @@ fun ManageScreen(
     var loading by rememberSaveable { mutableStateOf(false) }
     var config by remember { mutableStateOf<JSONObject?>(null) }
     val users = remember { mutableStateListOf<JSONObject>() }
+    val tokens = remember { mutableStateListOf<JSONObject>() }
 
     // Editable config fields
     var cfgBaseUrl by rememberSaveable { mutableStateOf("") }
@@ -99,6 +101,13 @@ fun ManageScreen(
             for (i in 0 until arr.length()) users.add(arr.getJSONObject(i))
         }
         uRes.onFailure { toast("Tidak dapat baca senarai user: ${it.message?.take(120)}") }
+
+        val tRes = api.listTokens()
+        tRes.onSuccess { arr ->
+            tokens.clear()
+            for (i in 0 until arr.length()) tokens.add(arr.getJSONObject(i))
+        }
+        tRes.onFailure { /* token pool may not exist on older servers — ignore silently */ }
         loading = false
     }
 
@@ -257,6 +266,33 @@ fun ManageScreen(
             }
         }
 
+        // Tokens (multi-key failover)
+        TokenPoolCard(
+            tokens = tokens,
+            loading = loading,
+            onAdd = { name, baseUrl, apiKey, model, priority ->
+                scope.launch {
+                    api.addToken(name, baseUrl, apiKey, model, priority)
+                        .onSuccess { toast("Token ditambah"); loadAll() }
+                        .onFailure { toast("Gagal: ${it.message?.take(120)}") }
+                }
+            },
+            onReactivate = { id ->
+                scope.launch {
+                    api.updateToken(id, status = "active")
+                        .onSuccess { toast("Token diaktifkan semula"); loadAll() }
+                        .onFailure { toast("Gagal: ${it.message?.take(120)}") }
+                }
+            },
+            onDelete = { id ->
+                scope.launch {
+                    api.deleteToken(id)
+                        .onSuccess { toast("Token dipadam"); loadAll() }
+                        .onFailure { toast("Gagal: ${it.message?.take(120)}") }
+                }
+            },
+        )
+
         // Users
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -352,6 +388,196 @@ private fun UserRow(
                 DropdownMenuItem(text = { Text("Grant Premium · 30 hari") }, onClick = { menuOpen = false; onGrant(id, "30d") })
                 DropdownMenuItem(text = { Text("Revoke Premium") }, onClick = { menuOpen = false; onRevoke(id) })
                 DropdownMenuItem(text = { Text("Reset tokens hari ini") }, onClick = { menuOpen = false; onResetTokens(id) })
+            }
+        }
+    }
+}
+
+// ---------- Token Pool Card ----------
+
+@Composable
+private fun TokenPoolCard(
+    tokens: List<JSONObject>,
+    loading: Boolean,
+    onAdd: (name: String, baseUrl: String, apiKey: String, model: String, priority: Int) -> Unit,
+    onReactivate: (id: Long) -> Unit,
+    onDelete: (id: Long) -> Unit,
+) {
+    var showForm by rememberSaveable { mutableStateOf(false) }
+    var newName by rememberSaveable { mutableStateOf("") }
+    var newBaseUrl by rememberSaveable { mutableStateOf("https://core.fiqstr.com/v1") }
+    var newApiKey by rememberSaveable { mutableStateOf("") }
+    var newModel by rememberSaveable { mutableStateOf("fiqstr/claude-opus-4.7-thinking-agentic") }
+    var newPriority by rememberSaveable { mutableStateOf("100") }
+
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("API Tokens (${tokens.size})", style = MaterialTheme.typography.titleSmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (loading) CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.padding(end = 4.dp))
+                    TextButton(onClick = { showForm = !showForm }) {
+                        Text(if (showForm) "Tutup" else "+ Tambah")
+                    }
+                }
+            }
+
+            Text(
+                "Token pool dengan auto-failover. Kalau satu key habis/error, tukar ke key seterusnya.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            if (showForm) {
+                HorizontalDivider(color = Color(0x22FFFFFF))
+                OutlinedTextField(
+                    value = newName,
+                    onValueChange = { newName = it },
+                    label = { Text("Nama (contoh: Fiqstr-1)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = newBaseUrl,
+                    onValueChange = { newBaseUrl = it.trim() },
+                    label = { Text("Base URL") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = newApiKey,
+                    onValueChange = { newApiKey = it },
+                    label = { Text("API Key") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = newModel,
+                    onValueChange = { newModel = it.trim() },
+                    label = { Text("Default Model") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = newPriority,
+                    onValueChange = { newPriority = it.filter { c -> c.isDigit() } },
+                    label = { Text("Priority (rendah = utama)") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Button(
+                    onClick = {
+                        if (newName.isNotBlank() && newBaseUrl.isNotBlank() && newApiKey.isNotBlank() && newModel.isNotBlank()) {
+                            onAdd(newName.trim(), newBaseUrl, newApiKey, newModel, newPriority.toIntOrNull() ?: 100)
+                            newName = ""
+                            newApiKey = ""
+                            showForm = false
+                        }
+                    },
+                    enabled = !loading,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Tambah Token") }
+            }
+
+            if (tokens.isEmpty() && !loading) {
+                Text(
+                    "Belum ada token dalam pool. Sistem akan guna API key dari .env.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            for (t in tokens) {
+                HorizontalDivider(color = Color(0x22FFFFFF))
+                TokenRow(
+                    t = t,
+                    onReactivate = onReactivate,
+                    onDelete = onDelete,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TokenRow(
+    t: JSONObject,
+    onReactivate: (id: Long) -> Unit,
+    onDelete: (id: Long) -> Unit,
+) {
+    val id = t.optLong("id")
+    val name = t.optString("name")
+    val status = t.optString("status", "active")
+    val model = t.optString("model")
+    val priority = t.optInt("priority", 100)
+    val maskedKey = t.optString("api_key_masked", "***")
+    val failReason = t.optString("failure_reason").takeIf { it.isNotBlank() && it != "null" }
+    val lastUsed = t.optString("last_used_at").takeIf { it.isNotBlank() && it != "null" }
+
+    var menuOpen by remember { mutableStateOf(false) }
+
+    val statusColor = when (status) {
+        "active" -> Color(0xFF4CAF50)
+        "exhausted" -> Color(0xFFF44336)
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.padding(vertical = 4.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        status.uppercase(),
+                        color = statusColor,
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                    Text(name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Text(
+                    "P$priority · $model · $maskedKey",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (failReason != null) {
+                    Text(
+                        "Error: $failReason",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFFF44336),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (lastUsed != null) {
+                    Text(
+                        "Terakhir guna: $lastUsed",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            TextButton(onClick = { menuOpen = true }) { Text("⋯") }
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                if (status == "exhausted" || status == "disabled") {
+                    DropdownMenuItem(
+                        text = { Text("Aktifkan semula") },
+                        onClick = { menuOpen = false; onReactivate(id) },
+                    )
+                }
+                DropdownMenuItem(
+                    text = { Text("Padam", color = Color(0xFFF44336)) },
+                    onClick = { menuOpen = false; onDelete(id) },
+                )
             }
         }
     }
