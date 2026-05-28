@@ -4,7 +4,9 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -399,19 +401,14 @@ private fun UserRow(
 private fun TokenPoolCard(
     tokens: List<JSONObject>,
     loading: Boolean,
-    onAdd: (name: String, baseUrl: String, apiKey: String, model: String, priority: Int) -> Unit,
+    onAdd: (name: String, baseUrl: String, apiKey: String, models: String, priority: Int) -> Unit,
     onReactivate: (id: Long) -> Unit,
     onDelete: (id: Long) -> Unit,
 ) {
     var showForm by rememberSaveable { mutableStateOf(false) }
-    var newName by rememberSaveable { mutableStateOf("") }
-    var newBaseUrl by rememberSaveable { mutableStateOf("https://core.fiqstr.com/v1") }
-    var newApiKey by rememberSaveable { mutableStateOf("") }
-    var newModel by rememberSaveable { mutableStateOf("fiqstr/claude-opus-4.7-thinking-agentic") }
-    var newPriority by rememberSaveable { mutableStateOf("100") }
 
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -419,93 +416,107 @@ private fun TokenPoolCard(
             ) {
                 Text("API Tokens (${tokens.size})", style = MaterialTheme.typography.titleSmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    if (loading) CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.padding(end = 4.dp))
+                    if (loading) CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
                     TextButton(onClick = { showForm = !showForm }) {
-                        Text(if (showForm) "Tutup" else "+ Tambah")
+                        Text(if (showForm) "Tutup" else "+ Add")
                     }
                 }
             }
 
-            Text(
-                "Token pool dengan auto-failover. Kalau satu key habis/error, tukar ke key seterusnya.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
             if (showForm) {
-                HorizontalDivider(color = Color(0x22FFFFFF))
-                OutlinedTextField(
-                    value = newName,
-                    onValueChange = { newName = it },
-                    label = { Text("Nama (contoh: Fiqstr-1)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = newBaseUrl,
-                    onValueChange = { newBaseUrl = it.trim() },
-                    label = { Text("Base URL") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = newApiKey,
-                    onValueChange = { newApiKey = it },
-                    label = { Text("API Key") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = newModel,
-                    onValueChange = { newModel = it.trim() },
-                    label = { Text("Default Model") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = newPriority,
-                    onValueChange = { newPriority = it.filter { c -> c.isDigit() } },
-                    label = { Text("Priority (rendah = utama)") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Button(
-                    onClick = {
-                        if (newName.isNotBlank() && newBaseUrl.isNotBlank() && newApiKey.isNotBlank() && newModel.isNotBlank()) {
-                            onAdd(newName.trim(), newBaseUrl, newApiKey, newModel, newPriority.toIntOrNull() ?: 100)
-                            newName = ""
-                            newApiKey = ""
-                            showForm = false
-                        }
+                AddTokenForm(
+                    loading = loading,
+                    onAdd = { name, baseUrl, apiKey, models, priority ->
+                        onAdd(name, baseUrl, apiKey, models, priority)
+                        showForm = false
                     },
-                    enabled = !loading,
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("Tambah Token") }
+                    onCancel = { showForm = false },
+                )
             }
 
             if (tokens.isEmpty() && !loading) {
                 Text(
-                    "Belum ada token dalam pool. Sistem akan guna API key dari .env.",
+                    "Belum ada token. Tekan + Add untuk tambah API key.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
 
             for (t in tokens) {
-                HorizontalDivider(color = Color(0x22FFFFFF))
-                TokenRow(
-                    t = t,
-                    onReactivate = onReactivate,
-                    onDelete = onDelete,
-                )
+                TokenListItem(t = t, onReactivate = onReactivate, onDelete = onDelete)
             }
         }
     }
 }
 
 @Composable
-private fun TokenRow(
+private fun AddTokenForm(
+    loading: Boolean,
+    onAdd: (name: String, baseUrl: String, apiKey: String, models: String, priority: Int) -> Unit,
+    onCancel: () -> Unit,
+) {
+    var name by rememberSaveable { mutableStateOf("") }
+    var baseUrl by rememberSaveable { mutableStateOf("https://core.fiqstr.com/v1") }
+    var apiKey by rememberSaveable { mutableStateOf("") }
+    var models by rememberSaveable { mutableStateOf("fiqstr/claude-opus-4.7-thinking-agentic, fiqstr/gpt-5.5, fiqstr/claude-sonnet-4.6-thinking-agentic") }
+    var priority by rememberSaveable { mutableStateOf("100") }
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A2E)),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Tambah Token Baru", style = MaterialTheme.typography.labelMedium)
+            OutlinedTextField(
+                value = name, onValueChange = { name = it },
+                label = { Text("Nama (cth: Fiqstr-1)") },
+                singleLine = true, modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = baseUrl, onValueChange = { baseUrl = it.trim() },
+                label = { Text("Base URL") },
+                singleLine = true, modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = apiKey, onValueChange = { apiKey = it },
+                label = { Text("API Key") },
+                singleLine = true, modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = models, onValueChange = { models = it },
+                label = { Text("Models (pisah dengan koma)") },
+                modifier = Modifier.fillMaxWidth(),
+                minLines = 2, maxLines = 4,
+            )
+            OutlinedTextField(
+                value = priority,
+                onValueChange = { priority = it.filter { c -> c.isDigit() } },
+                label = { Text("Priority (rendah = utama)") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f)) {
+                    Text("Batal")
+                }
+                Button(
+                    onClick = {
+                        if (name.isNotBlank() && baseUrl.isNotBlank() && apiKey.isNotBlank() && models.isNotBlank()) {
+                            onAdd(name.trim(), baseUrl, apiKey, models.trim(), priority.toIntOrNull() ?: 100)
+                            name = ""; apiKey = ""
+                        }
+                    },
+                    enabled = !loading && name.isNotBlank() && apiKey.isNotBlank(),
+                    modifier = Modifier.weight(1f),
+                ) { Text("Tambah") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TokenListItem(
     t: JSONObject,
     onReactivate: (id: Long) -> Unit,
     onDelete: (id: Long) -> Unit,
@@ -514,11 +525,10 @@ private fun TokenRow(
     val name = t.optString("name")
     val status = t.optString("status", "active")
     val model = t.optString("model")
-    val priority = t.optInt("priority", 100)
     val maskedKey = t.optString("api_key_masked", "***")
     val failReason = t.optString("failure_reason").takeIf { it.isNotBlank() && it != "null" }
-    val lastUsed = t.optString("last_used_at").takeIf { it.isNotBlank() && it != "null" }
 
+    var expanded by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
 
     val statusColor = when (status) {
@@ -526,58 +536,84 @@ private fun TokenRow(
         "exhausted" -> Color(0xFFF44336)
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
+    val statusDot = when (status) {
+        "active" -> "\u25CF"
+        "exhausted" -> "\u25CF"
+        else -> "\u25CB"
+    }
 
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.padding(vertical = 4.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(
-                        status.uppercase(),
-                        color = statusColor,
-                        style = MaterialTheme.typography.labelSmall,
-                    )
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF16162A)),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(10.dp)) {
+            // Compact header row — tap to expand
+            Row(
+                modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(statusDot, color = statusColor, style = MaterialTheme.typography.bodySmall)
                     Text(name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                Text(
-                    "P$priority · $model · $maskedKey",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (failReason != null) {
                     Text(
-                        "Error: $failReason",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFFF44336),
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                if (lastUsed != null) {
-                    Text(
-                        "Terakhir guna: $lastUsed",
+                        maskedKey,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
                     )
+                }
+                Row {
+                    Text(
+                        if (expanded) "\u25B2" else "\u25BC",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.clickable { expanded = !expanded }.padding(horizontal = 4.dp),
+                    )
+                    TextButton(onClick = { menuOpen = true }, modifier = Modifier.size(32.dp)) { Text("⋯") }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        if (status == "exhausted" || status == "disabled") {
+                            DropdownMenuItem(
+                                text = { Text("Aktifkan semula") },
+                                onClick = { menuOpen = false; onReactivate(id) },
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { Text("Padam", color = Color(0xFFF44336)) },
+                            onClick = { menuOpen = false; onDelete(id) },
+                        )
+                    }
                 }
             }
-            TextButton(onClick = { menuOpen = true }) { Text("⋯") }
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                if (status == "exhausted" || status == "disabled") {
-                    DropdownMenuItem(
-                        text = { Text("Aktifkan semula") },
-                        onClick = { menuOpen = false; onReactivate(id) },
-                    )
+
+            // Expanded details
+            if (expanded) {
+                Column(
+                    Modifier.padding(start = 20.dp, top = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    val models = model.split(",").map { it.trim() }.filter { it.isNotBlank() }
+                    Text("Models:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    for (m in models) {
+                        Text(
+                            "  \u2022 $m",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    if (failReason != null) {
+                        Text(
+                            "Error: $failReason",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFF44336),
+                            maxLines = 2, overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
-                DropdownMenuItem(
-                    text = { Text("Padam", color = Color(0xFFF44336)) },
-                    onClick = { menuOpen = false; onDelete(id) },
-                )
             }
         }
     }
