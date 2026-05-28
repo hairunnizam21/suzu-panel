@@ -31,7 +31,6 @@ enum class Screen { Setup, Install, Manage }
 fun SuzuAdminApp() {
     val ctx = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
 
     var screen by rememberSaveable {
         mutableStateOf(
@@ -40,7 +39,6 @@ fun SuzuAdminApp() {
     }
 
     LaunchedEffect(Unit) {
-        // If we already have credentials but install isn't marked done, jump straight to Install
         val hasHost = Prefs.get(ctx, Prefs.K_VPS_HOST).isNotBlank()
         if (hasHost && !Prefs.getBool(ctx, Prefs.K_INSTALL_DONE) && screen == Screen.Setup) {
             screen = Screen.Install
@@ -63,7 +61,8 @@ fun SuzuAdminApp() {
         Box(modifier = Modifier.fillMaxSize().padding(pad).padding(horizontal = 16.dp)) {
             when (screen) {
                 Screen.Setup -> SetupScreen(
-                    onContinue = { screen = Screen.Install },
+                    onConnectExisting = { screen = Screen.Manage },
+                    onInstallNew = { screen = Screen.Install },
                 )
                 Screen.Install -> InstallScreen(
                     onBack = { screen = Screen.Setup },
@@ -89,7 +88,7 @@ fun SuzuAdminApp() {
 }
 
 private fun Screen.title(): String = when (this) {
-    Screen.Setup -> "Suzu Admin · Setup"
+    Screen.Setup -> "Suzu Admin"
     Screen.Install -> "Install Suzu AI"
     Screen.Manage -> "Manage"
 }
