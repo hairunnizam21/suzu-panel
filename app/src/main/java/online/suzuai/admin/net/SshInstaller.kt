@@ -107,13 +107,14 @@ object SshInstaller {
                 put("StrictHostKeyChecking", "no")
                 put("PreferredAuthentications", "password,keyboard-interactive")
             })
-            session.connect(15000)
+            session.connect(5000)
             channel = session.openChannel("exec") as ChannelExec
             channel.setCommand(command)
             channel.setErrStream(System.err)
-            val out = channel.inputStream.bufferedReader().use { it.readText() }
-            channel.connect()
-            while (!channel.isClosed) Thread.sleep(100)
+            val input = channel.inputStream
+            channel.connect(5000)
+            val out = input.bufferedReader().use { it.readText() }
+            while (!channel.isClosed) Thread.sleep(50)
             Result.success(out)
         } catch (t: Throwable) {
             Result.failure(t)
